@@ -1,0 +1,211 @@
+{
+  "n_train_pairs": 1879555,
+  "positive_rate": 0.055895145393457496,
+  "n_features": 58,
+  "n_unique_texts": 2656571,
+  "use_bert": true,
+  "group_split": {
+    "roc_auc": 0.906021594656611,
+    "pr_auc": 0.4960336445786411,
+    "map": 0.9406954356463841,
+    "per_fold": [
+      {
+        "fold": 1,
+        "roc_auc": 0.9102369264995094,
+        "pr_auc": 0.47683680954231833,
+        "map": 0.9427878032310011,
+        "best_iter": 661
+      },
+      {
+        "fold": 2,
+        "roc_auc": 0.9085225116170016,
+        "pr_auc": 0.510153697646232,
+        "map": 0.9378827840998893,
+        "best_iter": 325
+      },
+      {
+        "fold": 3,
+        "roc_auc": 0.9125176033898157,
+        "pr_auc": 0.5383033497940695,
+        "map": 0.9471388949689511,
+        "best_iter": 405
+      },
+      {
+        "fold": 4,
+        "roc_auc": 0.8913902625874377,
+        "pr_auc": 0.46109312332459584,
+        "map": 0.9420505838371961,
+        "best_iter": 778
+      },
+      {
+        "fold": 5,
+        "roc_auc": 0.9096351689187894,
+        "pr_auc": 0.49836411534724706,
+        "map": 0.9365240514286872,
+        "best_iter": 1094
+      }
+    ]
+  },
+  "split_comparison_pr_auc": {
+    "разбиение по group_id": 0.46883119888284386,
+    "случайное по строкам": 0.5894270525131737
+  },
+  "leakage": {
+    "random_split": {
+      "overlap_ratio": 0.45057943094250147,
+      "n_valid_items": 674800,
+      "n_leaked_items": 304051
+    },
+    "group_split": {
+      "overlap_ratio": 0.0037362750657250372,
+      "n_valid_items": 484975,
+      "n_leaked_items": 1812
+    }
+  },
+  "ablation_pr_auc": {
+    "все признаки": 0.47384610002329536,
+    "без эмбеддингов": 0.4686034762286211,
+    "без скора башен": 0.45291139491864557,
+    "без эмбеддингов и башен": 0.451299095203069,
+    "без текстового сходства": 0.40829000723673214,
+    "без цены/фото/гео": 0.4506485294877865,
+    "без json_params": 0.47005014380353094,
+    "без сравнения фотографий": 0.4584133768991163
+  },
+  "top_features": [
+    {
+      "feature": "two_tower_sim",
+      "gain": 7718951.527732086
+    },
+    {
+      "feature": "title_jaccard_ngram",
+      "gain": 892281.5618391037
+    },
+    {
+      "feature": "cross_cand_title_in_base_desc",
+      "gain": 746226.4510061264
+    },
+    {
+      "feature": "price_min",
+      "gain": 728433.3080389022
+    },
+    {
+      "feature": "cross_base_title_in_cand_desc",
+      "gain": 704003.7959815979
+    },
+    {
+      "feature": "params_value_match_ratio",
+      "gain": 604391.613346672
+    },
+    {
+      "feature": "description_lcp_ratio",
+      "gain": 556325.9763906479
+    },
+    {
+      "feature": "price_max",
+      "gain": 522195.2673938751
+    },
+    {
+      "feature": "price_ratio",
+      "gain": 429287.7139717102
+    },
+    {
+      "feature": "price_abs_diff",
+      "gain": 424915.374347496
+    },
+    {
+      "feature": "description_jaccard_ngram",
+      "gain": 420923.0334806442
+    },
+    {
+      "feature": "images_min",
+      "gain": 415267.1140022278
+    },
+    {
+      "feature": "params_n_base",
+      "gain": 410707.5089792252
+    },
+    {
+      "feature": "image_cosine",
+      "gain": 408179.95667362213
+    },
+    {
+      "feature": "price_log_diff",
+      "gain": 374608.3759771347
+    },
+    {
+      "feature": "title_containment_tok",
+      "gain": 374449.25603637693
+    },
+    {
+      "feature": "params_n_cand",
+      "gain": 352190.0424789429
+    },
+    {
+      "feature": "description_len_ratio",
+      "gain": 349866.2170196533
+    },
+    {
+      "feature": "description_digits_jaccard",
+      "gain": 347887.150035286
+    },
+    {
+      "feature": "images_max",
+      "gain": 331128.909485054
+    }
+  ],
+  "cross_encoder": {
+    "pr_auc": 0.30012279919358864,
+    "roc_auc": 0.8522943529172471,
+    "map": 0.9148867480694532,
+    "blend_curve_pr_auc": {
+      "0.0": 0.30012279919358864,
+      "0.2": 0.3661531263415534,
+      "0.3": 0.3861646742210388,
+      "0.4": 0.40361117166776683,
+      "0.5": 0.419559170745097,
+      "0.6": 0.43473334986218687,
+      "0.7": 0.44974141554046676,
+      "0.8": 0.46527952154728996,
+      "1.0": 0.4960336445786411
+    },
+    "equal_blend_pr_auc": 0.419559170745097,
+    "budget": [
+      {
+        "seconds": 832.8525049686432,
+        "steps_done": 6690,
+        "steps_planned": 6690,
+        "stopped_early": false,
+        "train_pairs": 428185
+      },
+      {
+        "seconds": 816.922545671463,
+        "steps_done": 6548,
+        "steps_planned": 6548,
+        "stopped_early": false,
+        "train_pairs": 419120
+      },
+      {
+        "seconds": 796.1614787578583,
+        "steps_done": 6386,
+        "steps_planned": 6386,
+        "stopped_early": false,
+        "train_pairs": 408800
+      },
+      {
+        "seconds": 817.3694202899933,
+        "steps_done": 6548,
+        "steps_planned": 6548,
+        "stopped_early": false,
+        "train_pairs": 419105
+      },
+      {
+        "seconds": 831.8538131713867,
+        "steps_done": 6654,
+        "steps_planned": 6654,
+        "stopped_early": false,
+        "train_pairs": 425950
+      }
+    ]
+  }
+}

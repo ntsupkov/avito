@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+.DS_Store
+
+# данные соревнования не коммитятся: 2.6 гб, лежат на kaggle
+data/
+*.parquet
+*.vec
+*.vec.gz
+
+# артефакты прогона; reports/results.json коммитим — это опубликованные числа
+submission.csv
+/results.json
