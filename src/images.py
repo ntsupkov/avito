@@ -17,6 +17,10 @@ __all__ = [
     "hamming",
     "encode_images",
     "image_pair_features",
+    "save_image_cache",
+    "load_image_cache",
+    "align_image_cache",
+    "CACHE_FILES",
 ]
 
 DEFAULT_CLIP_MODEL = "openai/clip-vit-base-patch32"
@@ -26,6 +30,16 @@ IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp")
 DHASH_SIZE = 8
 
 DRAFT_SIDE = 256
+
+# кодирование трёх миллионов фотографий не укладывается в бюджет одного запуска,
+# и всё посчитанное умирает вместе с ядром. таблицу кладу на диск, чтобы следующий
+# запуск начал с того места, где предыдущий остановился
+CACHE_FILES = {
+    "keys": "image_keys.npy",
+    "embeddings": "image_embeddings.npy",
+    "hashes": "image_hashes.npy",
+    "found": "image_found.npy",
+}
 
 
 def _scandir_names(directory: Path, suffixes: tuple[str, ...]) -> list[tuple[str, str]]:
@@ -251,10 +265,32 @@ def encode_images(
     device: str | None = None,
     with_hashes: bool = True,
     time_budget_s: float | None = None,
+    known: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
     verbose: bool = True,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     import time
 
+    started = time.time()
+
+    if known is not None:
+        # таблица заполняется на месте: копия трёх гигабайт float16 удвоила бы пик памяти
+        out, hashes, found = known
+        if len(out) != len(keys) or len(hashes) != len(keys) or len(found) != len(keys):
+            raise ValueError("готовая таблица не выровнена по ключам")
+        out = np.asarray(out, dtype=np.float16)
+        hashes = np.asarray(hashes, dtype=np.uint64)
+        found = np.asarray(found, dtype=bool)
+    else:
+        out, hashes, found = None, np.zeros(len(keys), dtype=np.uint64), np.zeros(len(keys), dtype=bool)
+
+    # позиции, которые ещё предстоит закодировать. с пустым списком модель можно не поднимать
+    todo = np.flatnonzero(~found)
+    if len(todo) == 0:
+        if verbose:
+            print(f"все {len(keys)} фотографий взяты из кеша", flush=True)
+        return out, hashes, found
+
+    # тяжёлые зависимости нужны, только если осталось что кодировать
     import torch
     from PIL import Image
     from transformers import CLIPModel, CLIPProcessor
@@ -262,16 +298,19 @@ def encode_images(
     if device is None:
         device = pick_device(verbose=verbose)
     if verbose:
-        print(f"кодирую {len(keys)} уникальных фотографий на {device}", flush=True)
+        ready = len(keys) - len(todo)
+        source = f" ({ready} уже в кеше)" if ready else ""
+        print(f"кодирую {len(todo)} уникальных фотографий на {device}{source}", flush=True)
 
     processor = CLIPProcessor.from_pretrained(model_name)
     model = CLIPModel.from_pretrained(model_name).to(device).eval()
     dim = model.config.projection_dim
 
-    out = np.zeros((len(keys), dim), dtype=np.float16)
-    hashes = np.zeros(len(keys), dtype=np.uint64)
-    found = np.zeros(len(keys), dtype=bool)
-    started = time.time()
+    if out is None:
+        out = np.zeros((len(keys), dim), dtype=np.float16)
+    elif out.shape[1] != dim:
+        raise ValueError(f"кеш посчитан моделью с размерностью {out.shape[1]}, а не {dim}")
+    encoded = 0
     stopped_at = None
 
     def load_one(position: int):
@@ -301,11 +340,11 @@ def encode_images(
     pool = ThreadPoolExecutor(max_workers=workers)
 
     with torch.inference_mode():
-        for start in range(0, len(keys), batch_size):
+        for start in range(0, len(todo), batch_size):
             if time_budget_s is not None and time.time() - started > time_budget_s:
                 stopped_at = start
                 break
-            chunk_positions = range(start, min(start + batch_size, len(keys)))
+            chunk_positions = [int(p) for p in todo[start : start + batch_size]]
             images, positions = [], []
             for loaded in pool.map(load_one, chunk_positions):
                 if loaded is None:
@@ -321,31 +360,120 @@ def encode_images(
             features = features / features.norm(dim=-1, keepdim=True).clamp(min=1e-9)
             out[positions] = features.float().cpu().numpy().astype(np.float16)
             found[positions] = True
+            encoded += len(positions)
             for image in images:
                 image.close()
             if verbose and start and start % (batch_size * 100) == 0:
                 elapsed = time.time() - started
-                print(f"  {start}/{len(keys)} за {elapsed / 60:.0f} мин", flush=True)
+                print(f"  {start}/{len(todo)} за {elapsed / 60:.0f} мин", flush=True)
 
     pool.shutdown(wait=False)
 
     if verbose:
         elapsed = time.time() - started
+        total_ready = int(found.sum())
+        share = total_ready / max(len(keys), 1)
         if stopped_at is not None:
-            share = stopped_at / max(len(keys), 1)
             print(
-                f"бюджет {time_budget_s / 60:.0f} мин исчерпан: закодировано "
-                f"{stopped_at} из {len(keys)} ({share:.0%}), остальные пары "
-                f"пойдут без визуальных признаков",
+                f"бюджет {time_budget_s / 60:.0f} мин исчерпан: за этот запуск "
+                f"закодировано {encoded}, всего готово {total_ready} из {len(keys)} "
+                f"({share:.0%}), остальные пары пойдут без визуальных признаков",
                 flush=True,
             )
         else:
             print(
-                f"закодировано {int(found.sum())} из {len(keys)} за {elapsed / 60:.0f} мин",
+                f"закодировано {encoded} за {elapsed / 60:.0f} мин, "
+                f"всего готово {total_ready} из {len(keys)} ({share:.0%})",
                 flush=True,
             )
 
     return out, hashes, found
+
+
+def save_image_cache(
+    directory,
+    keys: list[str],
+    *,
+    embeddings: np.ndarray | None,
+    hashes: np.ndarray,
+    found: np.ndarray,
+) -> Path:
+    """кладу таблицу рядом с ключами: в следующем запуске порядок ключей будет другим,
+    и без имён сопоставить строки не с чем"""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    if not (len(keys) == len(hashes) == len(found)):
+        raise ValueError("ключи, хеши и маска должны быть одной длины")
+
+    np.save(directory / CACHE_FILES["keys"], _keys_as_bytes(keys))
+    np.save(directory / CACHE_FILES["hashes"], np.asarray(hashes, dtype=np.uint64))
+    np.save(directory / CACHE_FILES["found"], np.asarray(found, dtype=bool))
+    if embeddings is not None:
+        if len(embeddings) != len(keys):
+            raise ValueError("эмбеддинги не выровнены по ключам")
+        np.save(directory / CACHE_FILES["embeddings"], np.asarray(embeddings, dtype=np.float16))
+    return directory
+
+
+def _keys_as_bytes(keys) -> np.ndarray:
+    # байтовые строки вчетверо компактнее юникодных, а ключи — имена файлов
+    try:
+        return np.array(list(keys), dtype="S")
+    except UnicodeEncodeError:
+        return np.array(list(keys), dtype="U")
+
+
+def load_image_cache(directory) -> dict | None:
+    directory = Path(directory)
+    keys_path = directory / CACHE_FILES["keys"]
+    if not keys_path.exists():
+        return None
+    cache = {
+        "keys": np.load(keys_path, allow_pickle=False),
+        "hashes": np.load(directory / CACHE_FILES["hashes"], allow_pickle=False),
+        "found": np.load(directory / CACHE_FILES["found"], allow_pickle=False),
+        "embeddings": None,
+    }
+    embeddings_path = directory / CACHE_FILES["embeddings"]
+    if embeddings_path.exists():
+        cache["embeddings"] = np.load(embeddings_path, mmap_mode="r", allow_pickle=False)
+    return cache
+
+
+def align_image_cache(keys: list[str], cache: dict) -> tuple[np.ndarray | None, np.ndarray, np.ndarray]:
+    """сопоставляю кеш с текущими ключами через сортировку: словарь на три миллиона
+    строк занял бы сотни мегабайт, searchsorted обходится массивами"""
+    cached_keys = np.asarray(cache["keys"])
+    target = _keys_as_bytes(keys).astype(cached_keys.dtype, copy=False)
+
+    order = np.argsort(cached_keys, kind="stable")
+    sorted_keys = cached_keys[order]
+    position = np.searchsorted(sorted_keys, target)
+    position = np.clip(position, 0, max(len(sorted_keys) - 1, 0))
+    hit = (len(sorted_keys) > 0) & (sorted_keys[position] == target)
+    source = order[position]
+
+    hashes = np.zeros(len(keys), dtype=np.uint64)
+    found = np.zeros(len(keys), dtype=bool)
+    cached_found = np.asarray(cache["found"], dtype=bool)
+    # беру только те строки, что были действительно посчитаны: остальные в кеше нули
+    usable = hit & cached_found[source]
+    hashes[usable] = np.asarray(cache["hashes"], dtype=np.uint64)[source[usable]]
+    found[usable] = True
+
+    embeddings = None
+    if cache.get("embeddings") is not None:
+        cached_embeddings = cache["embeddings"]
+        embeddings = np.zeros((len(keys), cached_embeddings.shape[1]), dtype=np.float16)
+        # файл читается через mmap с сетевого диска: беру строки по возрастанию,
+        # чтобы чтение шло подряд, а не прыжками
+        rows = np.flatnonzero(usable)
+        picked = source[usable]
+        ascending = np.argsort(picked, kind="stable")
+        embeddings[rows[ascending]] = np.asarray(
+            cached_embeddings[picked[ascending]], dtype=np.float16
+        )
+    return embeddings, hashes, found
 
 
 def image_pair_features(
